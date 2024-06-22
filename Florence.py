@@ -327,12 +327,74 @@ class Florence2Postprocess:
         loc_string = f"<loc_{x1 * 999 // width}><loc_{y1 * 999 // height}><loc_{x2 * 999 // width}><loc_{y2 * 999 // height}>"
         return (mask, label, loc_string, x2 - x1 + 1, y2 - y1 + 1, x1, y1)
 
+class Florence2PostprocessMasks:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "F_BBOXES": ("F_BBOXES",),
+            },
+        }
+
+    RETURN_TYPES = ("MASK", )
+    RETURN_NAMES = ("mask", )
+    FUNCTION = "apply"
+    CATEGORY = "Florence2"
+
+    def apply(self, F_BBOXES):
+        if isinstance(F_BBOXES, str):
+            return (torch.zeros(1, 512, 512, dtype=torch.float32), F_BBOXES)
+
+        width = F_BBOXES["width"]
+        height = F_BBOXES["height"]
+        mask = np.zeros((height, width), dtype=np.uint8)
+
+        if "bboxes" in F_BBOXES:
+            for idx in range(len(F_BBOXES["bboxes"])):
+                bbox = F_BBOXES["bboxes"][idx]
+
+                if len(bbox) == 4:
+                    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                elif len(bbox) == 8:
+                    x1 = int(min(bbox[0::2]))
+                    x2 = int(max(bbox[0::2]))
+                    y1 = int(min(bbox[1::2]))
+                    y2 = int(max(bbox[1::2]))
+                else:
+                    continue
+
+                mask[y1:y2, x1:x2] = 1
+
+        else:
+            polygon = F_BBOXES["polygons"][0][0]
+
+            image = Image.new('RGB', (width, height), color='black')
+            draw = ImageDraw.Draw(image)
+            _polygon = np.array(polygon).reshape(-1, 2)
+            if len(_polygon) < 3:
+                print('Invalid polygon:', _polygon)
+            else:
+                _polygon = (_polygon).reshape(-1).tolist()
+                draw.polygon(_polygon, outline='white', fill='white')
+
+            # x1 = int(min(polygon[0::2]))
+            # x2 = int(max(polygon[0::2]))
+            # y1 = int(min(polygon[1::2]))
+            # y2 = int(max(polygon[1::2]))
+
+            mask = np.asarray(image)[..., 0].astype(np.float32) / 255
+
+        mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
+        return (mask, )
+
 NODE_CLASS_MAPPINGS = {
     "Florence2": Florence2,
     "Florence2Postprocess": Florence2Postprocess,
+    "Florence2PostprocessMasks": Florence2PostprocessMasks,
     }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Florence2": "Florence2",
     "Florence2Postprocess": "Florence2 Postprocess",
+    "Florence2PostprocessMasks": "Florence2 Postprocess Masks",
     }
