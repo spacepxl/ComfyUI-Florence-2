@@ -287,41 +287,44 @@ class Florence2Postprocess:
         width = F_BBOXES["width"]
         height = F_BBOXES["height"]
         mask = np.zeros((height, width), dtype=np.uint8)
-        
-        if "bboxes" in F_BBOXES:
-            bbox = F_BBOXES["bboxes"][index]
-            label = F_BBOXES["labels"][index]
-            label = label.removeprefix("</s>")
-            
-            if len(bbox) == 4:
-                x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-            elif len(bbox) == 8:
-                x1 = int(min(bbox[0::2]))
-                x2 = int(max(bbox[0::2]))
-                y1 = int(min(bbox[1::2]))
-                y2 = int(max(bbox[1::2]))
-            
-            mask[y1:y2, x1:x2] = 1
-        
-        else:
-            polygon = F_BBOXES["polygons"][0][0]
-            label = F_BBOXES["labels"][index]
-            
-            image = Image.new('RGB', (width, height), color='black')
-            draw = ImageDraw.Draw(image)
-            _polygon = np.array(polygon).reshape(-1, 2)
-            if len(_polygon) < 3:
-                print('Invalid polygon:', _polygon)
+
+        x1 = y1 = x2 = y2 = 0
+        label = ""
+        if index < len(F_BBOXES["labels"]):
+            if "bboxes" in F_BBOXES:
+                bbox = F_BBOXES["bboxes"][index]
+                label = F_BBOXES["labels"][index]
+                label = label.removeprefix("</s>")
+
+                if len(bbox) == 4:
+                    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                elif len(bbox) == 8:
+                    x1 = int(min(bbox[0::2]))
+                    x2 = int(max(bbox[0::2]))
+                    y1 = int(min(bbox[1::2]))
+                    y2 = int(max(bbox[1::2]))
+
+                mask[y1:y2, x1:x2] = 1
+
             else:
-                _polygon = (_polygon).reshape(-1).tolist()
-                draw.polygon(_polygon, outline='white', fill='white')
-            
-            x1 = int(min(polygon[0::2]))
-            x2 = int(max(polygon[0::2]))
-            y1 = int(min(polygon[1::2]))
-            y2 = int(max(polygon[1::2]))
-            
-            mask = np.asarray(image)[..., 0].astype(np.float32) / 255
+                polygon = F_BBOXES["polygons"][0][0]
+                label = F_BBOXES["labels"][index]
+
+                image = Image.new('RGB', (width, height), color='black')
+                draw = ImageDraw.Draw(image)
+                _polygon = np.array(polygon).reshape(-1, 2)
+                if len(_polygon) < 3:
+                    print('Invalid polygon:', _polygon)
+                else:
+                    _polygon = (_polygon).reshape(-1).tolist()
+                    draw.polygon(_polygon, outline='white', fill='white')
+
+                x1 = int(min(polygon[0::2]))
+                x2 = int(max(polygon[0::2]))
+                y1 = int(min(polygon[1::2]))
+                y2 = int(max(polygon[1::2]))
+
+                mask = np.asarray(image)[..., 0].astype(np.float32) / 255
         
         mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
         loc_string = f"<loc_{x1 * 999 // width}><loc_{y1 * 999 // height}><loc_{x2 * 999 // width}><loc_{y2 * 999 // height}>"
