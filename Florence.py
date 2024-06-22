@@ -55,7 +55,7 @@ def plot_bbox(image, data):
         rect = patches.Rectangle((x1, y1), x2-x1, y2-y1, linewidth=1, edgecolor='r', facecolor='none')
         ax.add_patch(rect)
         enum_label = f"{i}: {label}"
-        plt.text(x1, y1, enum_label, color='white', fontsize=8, bbox=dict(facecolor='red', alpha=0.5))
+        plt.text(x1 + 7, y1 + 17, enum_label, color='white', fontsize=8, bbox=dict(facecolor='red', alpha=0.5))
     ax.axis('off')
     return fig
 
@@ -65,7 +65,6 @@ def draw_polygons(image, prediction, fill_mask=False):
     scale = 1
     for polygons, label in zip(prediction['polygons'], prediction['labels']):
         color = random.choice(colormap)
-        # fill_color = random.choice(colormap) if fill_mask else None
         fill_color = color if fill_mask else None
         for _polygon in polygons:
             _polygon = np.array(_polygon).reshape(-1, 2)
@@ -131,7 +130,7 @@ class Florence2:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "version": (["base-ft", "large-ft"],),
+                "version": (["base", "base-ft", "large", "large-ft"],),
                 "task": (TASK_OPTIONS, {"default": TASK_OPTIONS[0]}),
                 "text_input": ("STRING", {}),
                 "keep_loaded": ("BOOLEAN", {"default": True,}),
@@ -292,11 +291,35 @@ class Florence2Postprocess:
         if "bboxes" in F_BBOXES:
             bbox = F_BBOXES["bboxes"][index]
             label = F_BBOXES["labels"][index]
-            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            label = label.removeprefix("</s>")
+            
+            if len(bbox) == 4:
+                x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            elif len(bbox) == 8:
+                x1 = int(min(bbox[::2]))
+                x2 = int(max(bbox[::2]))
+                y1 = int(min(bbox[1::2]))
+                y2 = int(max(bbox[1::2]))
+            
             mask[y1:y2, x1:x2] = 1
+        
         else:
             polygon = F_BBOXES["polygons"][index]
             label = F_BBOXES["labels"][index]
+            
+            image = Image.new('RGB', (width, height), color='black')
+            draw = ImageDraw.Draw(image)
+            
+            color = 'white'
+            for _polygon in polygon:
+                _polygon = np.array(_polygon).reshape(-1, 2)
+                if len(_polygon) < 3:
+                    print('Invalid polygon:', _polygon)
+                    continue
+                _polygon = (_polygon).reshape(-1).tolist()
+                draw.polygon(_polygon, outline=color, fill=color)
+            
+            mask = np.asarray(image)[..., 0].astype(np.float32) / 255
         
         mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
         return (mask, label)
