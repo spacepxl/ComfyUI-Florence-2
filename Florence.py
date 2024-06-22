@@ -275,8 +275,8 @@ class Florence2Postprocess:
             },
         }
     
-    RETURN_TYPES = ("MASK", "STRING",)
-    RETURN_NAMES = ("mask", "label",)
+    RETURN_TYPES = ("MASK", "STRING", "STRING", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("mask", "label", "loc_string", "width", "height", "x", "y")
     FUNCTION = "apply"
     CATEGORY = "Florence2"
     
@@ -296,33 +296,36 @@ class Florence2Postprocess:
             if len(bbox) == 4:
                 x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
             elif len(bbox) == 8:
-                x1 = int(min(bbox[::2]))
-                x2 = int(max(bbox[::2]))
+                x1 = int(min(bbox[0::2]))
+                x2 = int(max(bbox[0::2]))
                 y1 = int(min(bbox[1::2]))
                 y2 = int(max(bbox[1::2]))
             
             mask[y1:y2, x1:x2] = 1
         
         else:
-            polygon = F_BBOXES["polygons"][index]
+            polygon = F_BBOXES["polygons"][0][0]
             label = F_BBOXES["labels"][index]
             
             image = Image.new('RGB', (width, height), color='black')
             draw = ImageDraw.Draw(image)
-            
-            color = 'white'
-            for _polygon in polygon:
-                _polygon = np.array(_polygon).reshape(-1, 2)
-                if len(_polygon) < 3:
-                    print('Invalid polygon:', _polygon)
-                    continue
+            _polygon = np.array(polygon).reshape(-1, 2)
+            if len(_polygon) < 3:
+                print('Invalid polygon:', _polygon)
+            else:
                 _polygon = (_polygon).reshape(-1).tolist()
-                draw.polygon(_polygon, outline=color, fill=color)
+                draw.polygon(_polygon, outline='white', fill='white')
+            
+            x1 = int(min(polygon[0::2]))
+            x2 = int(max(polygon[0::2]))
+            y1 = int(min(polygon[1::2]))
+            y2 = int(max(polygon[1::2]))
             
             mask = np.asarray(image)[..., 0].astype(np.float32) / 255
         
         mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
-        return (mask, label)
+        loc_string = f"<loc_{x1 * 999 // width}><loc_{y1 * 999 // height}><loc_{x2 * 999 // width}><loc_{y2 * 999 // height}>"
+        return (mask, label, loc_string, x2 - x1 + 1, y2 - y1 + 1, x1, y1)
 
 NODE_CLASS_MAPPINGS = {
     "Florence2": Florence2,
