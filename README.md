@@ -4,10 +4,17 @@ https://huggingface.co/microsoft/Florence-2-large
 
 All four models, initial support for all output types
 
+<details>
+
+<summary>Examples</summary>
+
 ![](workflow.png)
 
 ![](workflow_bbox.png)
 
+![](workflow_seg_crop.png)
+
+</details>
+
 TODO:
- - add bbox outputs for CLIP conditioning
- - all-in-one CLIP masked conditioning node?
+ - all-in-one CLIP masked conditioning node
