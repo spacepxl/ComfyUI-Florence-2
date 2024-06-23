@@ -282,7 +282,7 @@ class Florence2Postprocess:
     
     def apply(self, F_BBOXES, index):
         if isinstance(F_BBOXES, str):
-            return (torch.zeros(1, 512, 512, dtype=torch.float32), F_BBOXES)
+            return (torch.zeros(1, 512, 512, dtype=torch.float32), F_BBOXES, "", 0, 0, 0, 0)
         
         width = F_BBOXES["width"]
         height = F_BBOXES["height"]
@@ -346,7 +346,7 @@ class Florence2PostprocessMasks:
 
     def apply(self, F_BBOXES):
         if isinstance(F_BBOXES, str):
-            return (torch.zeros(1, 512, 512, dtype=torch.float32), F_BBOXES)
+            return (torch.zeros(1, 512, 512, dtype=torch.float32), )
 
         width = F_BBOXES["width"]
         height = F_BBOXES["height"]
@@ -365,7 +365,7 @@ class Florence2PostprocessMasks:
                     y2 = int(max(bbox[1::2]))
                 else:
                     continue
-
+                
                 mask[y1:y2, x1:x2] = 1
 
         else:
@@ -379,12 +379,7 @@ class Florence2PostprocessMasks:
             else:
                 _polygon = (_polygon).reshape(-1).tolist()
                 draw.polygon(_polygon, outline='white', fill='white')
-
-            # x1 = int(min(polygon[0::2]))
-            # x2 = int(max(polygon[0::2]))
-            # y1 = int(min(polygon[1::2]))
-            # y2 = int(max(polygon[1::2]))
-
+            
             mask = np.asarray(image)[..., 0].astype(np.float32) / 255
 
         mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
@@ -399,5 +394,5 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Florence2": "Florence2",
     "Florence2Postprocess": "Florence2 Postprocess",
-    "Florence2PostprocessMasks": "Florence2 Postprocess Masks",
+    "Florence2PostprocessMasks": "Florence2 Postprocess Masks (Combine All)",
     }
