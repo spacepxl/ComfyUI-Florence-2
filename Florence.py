@@ -158,10 +158,8 @@ class Florence2:
             "required": {
                 "FLORENCE2": ("FLORENCE2",),
                 "image": ("IMAGE",),
-                # "version": (["base", "base-ft", "large", "large-ft"],),
                 "task": (TASK_OPTIONS, {"default": TASK_OPTIONS[0]}),
                 "text_input": ("STRING", {}),
-                # "keep_loaded": ("BOOLEAN", {"default": True,}),
             },
         }
     
@@ -173,10 +171,6 @@ class Florence2:
     def apply(self, FLORENCE2, image, task, text_input):
         img = 255. * image[0].cpu().numpy()
         img = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)) 
-        
-        # if self.version != version:
-            # self.model, self.processor = load_model(version, self.device)
-            # self.version = version
         
         self.model = FLORENCE2['model']
         self.processor = FLORENCE2['processor']
@@ -194,14 +188,6 @@ class Florence2:
         else:
             output_image = np.asarray(output_image).astype(np.float32) / 255
             output_image = torch.from_numpy(output_image).unsqueeze(0)
-        
-        # if not keep_loaded:
-            # self.model = None
-            # self.processor = None
-            # self.version = None
-            # gc.collect()
-            # if self.device == "cuda":
-                # torch.cuda.empty_cache()
         
         return (output_image, str(results), results)
     
