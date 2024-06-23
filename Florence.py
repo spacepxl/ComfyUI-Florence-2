@@ -308,7 +308,7 @@ class Florence2Postprocess:
 
             else:
                 polygon = F_BBOXES["polygons"][0][0]
-                label = F_BBOXES["labels"][index]
+                label = F_BBOXES["labels"][0]
 
                 image = Image.new('RGB', (width, height), color='black')
                 draw = ImageDraw.Draw(image)
@@ -330,7 +330,7 @@ class Florence2Postprocess:
         loc_string = f"<loc_{x1 * 999 // width}><loc_{y1 * 999 // height}><loc_{x2 * 999 // width}><loc_{y2 * 999 // height}>"
         return (mask, label, loc_string, x2 - x1 + 1, y2 - y1 + 1, x1, y1)
 
-class Florence2PostprocessMasks:
+class Florence2PostprocessAll:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -339,23 +339,33 @@ class Florence2PostprocessMasks:
             },
         }
 
-    RETURN_TYPES = ("MASK", )
-    RETURN_NAMES = ("mask", )
+    RETURN_TYPES = ("MASK", "STRING", "STRING", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("mask", "label", "loc_string", "width", "height", "x", "y")
     FUNCTION = "apply"
     CATEGORY = "Florence2"
 
     def apply(self, F_BBOXES):
         if isinstance(F_BBOXES, str):
-            return (torch.zeros(1, 512, 512, dtype=torch.float32), )
-
+            return (torch.zeros(1, 512, 512, dtype=torch.float32), F_BBOXES, "", 0, 0, 0, 0)
+        
         width = F_BBOXES["width"]
         height = F_BBOXES["height"]
         mask = np.zeros((height, width), dtype=np.uint8)
-
+        
+        x1_c = width
+        y1_c = height
+        x2_c = y2_c = 0
+        label = ""
         if "bboxes" in F_BBOXES:
             for idx in range(len(F_BBOXES["bboxes"])):
                 bbox = F_BBOXES["bboxes"][idx]
-
+                
+                new_label = F_BBOXES["labels"][idx].removeprefix("</s>")
+                if new_label not in label:
+                    if idx > 0:
+                        label = label + ", "
+                    label = label + new_label
+                
                 if len(bbox) == 4:
                     x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                 elif len(bbox) == 8:
@@ -366,8 +376,13 @@ class Florence2PostprocessMasks:
                 else:
                     continue
                 
+                x1_c = min(x1_c, x1)
+                y1_c = min(y1_c, y1)
+                x2_c = max(x2_c, x2)
+                y2_c = max(y2_c, y2)
+                
                 mask[y1:y2, x1:x2] = 1
-
+        
         else:
             polygon = F_BBOXES["polygons"][0][0]
 
@@ -380,19 +395,25 @@ class Florence2PostprocessMasks:
                 _polygon = (_polygon).reshape(-1).tolist()
                 draw.polygon(_polygon, outline='white', fill='white')
             
+            x1_c = int(min(polygon[0::2]))
+            x2_c = int(max(polygon[0::2]))
+            y1_c = int(min(polygon[1::2]))
+            y2_c = int(max(polygon[1::2]))
+            
             mask = np.asarray(image)[..., 0].astype(np.float32) / 255
-
+        
         mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
-        return (mask, )
+        loc_string = f"<loc_{x1_c * 999 // width}><loc_{y1_c * 999 // height}><loc_{x2_c * 999 // width}><loc_{y2_c * 999 // height}>"
+        return (mask, label, loc_string, x2_c - x1_c + 1, y2_c - y1_c + 1, x1_c, y1_c)
 
 NODE_CLASS_MAPPINGS = {
     "Florence2": Florence2,
     "Florence2Postprocess": Florence2Postprocess,
-    "Florence2PostprocessMasks": Florence2PostprocessMasks,
+    "Florence2PostprocessAll": Florence2PostprocessAll,
     }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Florence2": "Florence2",
-    "Florence2Postprocess": "Florence2 Postprocess",
-    "Florence2PostprocessMasks": "Florence2 Postprocess Masks (Combine All)",
+    "Florence2Postprocess": "Florence2 Postprocess Single",
+    "Florence2PostprocessAll": "Florence2 Postprocess All",
     }
