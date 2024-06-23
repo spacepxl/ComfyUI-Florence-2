@@ -118,7 +118,7 @@ TASK_OPTIONS = [
     "OCR with region"
     ]
 
-class Florence2:
+class LoadFlorence2Model:
     def __init__(self):
         self.model = None
         self.processor = None
@@ -129,11 +129,39 @@ class Florence2:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "version": (["base", "base-ft", "large", "large-ft"],),
+            },
+        }
+    
+    RETURN_TYPES = ("FLORENCE2", )
+    FUNCTION = "load"
+    CATEGORY = "Florence2"
+    
+    def load(self, version):
+        
+        if self.version != version:
+            self.model, self.processor = load_model(version, self.device)
+            self.version = version
+        
+        return ({'model': self.model, 'processor': self.processor, 'version': self.version, 'device': self.device}, )
+
+class Florence2:
+    def __init__(self):
+        self.model = None
+        self.processor = None
+        self.version = None
+        self.device = None
+    
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "FLORENCE2": ("FLORENCE2",),
+                "image": ("IMAGE",),
+                # "version": (["base", "base-ft", "large", "large-ft"],),
                 "task": (TASK_OPTIONS, {"default": TASK_OPTIONS[0]}),
                 "text_input": ("STRING", {}),
-                "keep_loaded": ("BOOLEAN", {"default": True,}),
+                # "keep_loaded": ("BOOLEAN", {"default": True,}),
             },
         }
     
@@ -142,13 +170,18 @@ class Florence2:
     FUNCTION = "apply"
     CATEGORY = "Florence2"
     
-    def apply(self, image, version, task, text_input, keep_loaded):
+    def apply(self, FLORENCE2, image, task, text_input):
         img = 255. * image[0].cpu().numpy()
         img = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)) 
         
-        if self.version != version:
-            self.model, self.processor = load_model(version, self.device)
-            self.version = version
+        # if self.version != version:
+            # self.model, self.processor = load_model(version, self.device)
+            # self.version = version
+        
+        self.model = FLORENCE2['model']
+        self.processor = FLORENCE2['processor']
+        self.version = FLORENCE2['version']
+        self.device = FLORENCE2['device']
         
         results, output_image = self.process_image(img, task, text_input)
         # bboxes, labels OR polygons, labels
@@ -162,13 +195,13 @@ class Florence2:
             output_image = np.asarray(output_image).astype(np.float32) / 255
             output_image = torch.from_numpy(output_image).unsqueeze(0)
         
-        if not keep_loaded:
-            self.model = None
-            self.processor = None
-            self.version = None
-            gc.collect()
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
+        # if not keep_loaded:
+            # self.model = None
+            # self.processor = None
+            # self.version = None
+            # gc.collect()
+            # if self.device == "cuda":
+                # torch.cuda.empty_cache()
         
         return (output_image, str(results), results)
     
@@ -407,12 +440,14 @@ class Florence2PostprocessAll:
         return (mask, label, loc_string, x2_c - x1_c + 1, y2_c - y1_c + 1, x1_c, y1_c)
 
 NODE_CLASS_MAPPINGS = {
+    "LoadFlorence2Model": LoadFlorence2Model,
     "Florence2": Florence2,
     "Florence2Postprocess": Florence2Postprocess,
     "Florence2PostprocessAll": Florence2PostprocessAll,
     }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "LoadFlorence2Model": "Load Florence2 Model",
     "Florence2": "Florence2",
     "Florence2Postprocess": "Florence2 Postprocess Single",
     "Florence2PostprocessAll": "Florence2 Postprocess All",
