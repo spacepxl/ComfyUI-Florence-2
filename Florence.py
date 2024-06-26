@@ -14,6 +14,9 @@ import torch
 from transformers import AutoProcessor, AutoModelForCausalLM
 from transformers.dynamic_module_utils import get_imports
 
+# Comfy Utils
+import folder_paths
+import comfy.model_management
 
 colormap = ['blue','orange','green','purple','brown','pink','gray','olive','cyan','red',
             'lime','indigo','violet','aqua','magenta','coral','gold','tan','skyblue']
@@ -27,15 +30,15 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     return imports
 
 def load_model(version, device):
-    model_dir = os.path.join(os.path.split(__file__)[0], "models")
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
+    comfy_model_dir = os.path.join(folder_paths.models_dir, "LLM")
+    if not os.path.exists(comfy_model_dir):
+        os.mkdir(comfy_model_dir)
     
     identifier = "microsoft/Florence-2-" + version
     
     with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
-        model = AutoModelForCausalLM.from_pretrained(identifier, cache_dir=model_dir, trust_remote_code=True)
-        processor = AutoProcessor.from_pretrained(identifier, cache_dir=model_dir, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(identifier, cache_dir=comfy_model_dir, trust_remote_code=True)
+        processor = AutoProcessor.from_pretrained(identifier, cache_dir=comfy_model_dir, trust_remote_code=True)
     
     model = model.to(device)
     return (model, processor)
@@ -123,7 +126,7 @@ class LoadFlorence2Model:
         self.model = None
         self.processor = None
         self.version = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = comfy.model_management.get_torch_device()
     
     @classmethod
     def INPUT_TYPES(s):
@@ -160,6 +163,10 @@ class Florence2:
                 "image": ("IMAGE",),
                 "task": (TASK_OPTIONS, {"default": TASK_OPTIONS[0]}),
                 "text_input": ("STRING", {}),
+                "max_new_tokens": ("INT", {"default": 1024, "step": 1 }),
+                "num_beams": ("INT", {"default": 3,  "min": 1, "step": 1 }),
+                "do_sample": ('BOOLEAN', {"default":False}),
+                "fill_mask": ('BOOLEAN', {"default":False}),
             },
         }
     
@@ -168,7 +175,7 @@ class Florence2:
     FUNCTION = "apply"
     CATEGORY = "Florence2"
     
-    def apply(self, FLORENCE2, image, task, text_input):
+    def apply(self, FLORENCE2, image, task, text_input, max_new_tokens, num_beams, do_sample, fill_mask):
         img = 255. * image[0].cpu().numpy()
         img = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)) 
         
@@ -177,12 +184,12 @@ class Florence2:
         self.version = FLORENCE2['version']
         self.device = FLORENCE2['device']
         
-        results, output_image = self.process_image(img, task, text_input)
+        results, output_image = self.process_image(img, task, max_new_tokens, num_beams, do_sample, fill_mask, text_input)
         # bboxes, labels OR polygons, labels
         if isinstance(results, dict):
             results["width"] = img.width
             results["height"] = img.height
-        
+
         if output_image == None:
             output_image = image[0].detach().clone().unsqueeze(0)
         else:
@@ -191,7 +198,7 @@ class Florence2:
         
         return (output_image, str(results), results)
     
-    def run_example(self, task_prompt, image, text_input=None):
+    def run_example(self, task_prompt, image, max_new_tokens, num_beams, do_sample, text_input=None):
         if text_input is None:
             prompt = task_prompt
         else:
@@ -200,10 +207,10 @@ class Florence2:
         generated_ids = self.model.generate(
             input_ids=inputs["input_ids"],
             pixel_values=inputs["pixel_values"],
-            max_new_tokens=1024,
+            max_new_tokens=max_new_tokens,
             early_stopping=False,
-            do_sample=False,
-            num_beams=3,
+            do_sample=do_sample,
+            num_beams=num_beams,
         )
         generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
         parsed_answer = self.processor.post_process_generation(
@@ -213,70 +220,70 @@ class Florence2:
         )
         return parsed_answer
     
-    def process_image(self, image, task_prompt, text_input=None):
+    def process_image(self, image, task_prompt, max_new_tokens, num_beams, do_sample, fill_mask, text_input=None):
         if task_prompt == 'caption':
             task_prompt = '<CAPTION>'
-            result = self.run_example(task_prompt, image)
+            result = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             return result[task_prompt], None
         elif task_prompt == 'detailed caption':
             task_prompt = '<DETAILED_CAPTION>'
-            result = self.run_example(task_prompt, image)
+            result = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             return result[task_prompt], None
         elif task_prompt == 'more detailed caption':
             task_prompt = '<MORE_DETAILED_CAPTION>'
-            result = self.run_example(task_prompt, image)
+            result = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             return result[task_prompt], None
         elif task_prompt == 'object detection':
             task_prompt = '<OD>'
-            results = self.run_example(task_prompt, image)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             fig = plot_bbox(image, results['<OD>'])
             return results[task_prompt], fig_to_pil(fig)
         elif task_prompt == 'dense region caption':
             task_prompt = '<DENSE_REGION_CAPTION>'
-            results = self.run_example(task_prompt, image)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             fig = plot_bbox(image, results['<DENSE_REGION_CAPTION>'])
             return results[task_prompt], fig_to_pil(fig)
         elif task_prompt == 'region proposal':
             task_prompt = '<REGION_PROPOSAL>'
-            results = self.run_example(task_prompt, image)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             fig = plot_bbox(image, results['<REGION_PROPOSAL>'])
             return results[task_prompt], fig_to_pil(fig)
         elif task_prompt == 'caption to phrase grounding':
             task_prompt = '<CAPTION_TO_PHRASE_GROUNDING>'
-            results = self.run_example(task_prompt, image, text_input)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample, text_input)
             fig = plot_bbox(image, results['<CAPTION_TO_PHRASE_GROUNDING>'])
             return results[task_prompt], fig_to_pil(fig)
         elif task_prompt == 'referring expression segmentation':
             task_prompt = '<REFERRING_EXPRESSION_SEGMENTATION>'
-            results = self.run_example(task_prompt, image, text_input)
-            output_image = draw_polygons(image, results['<REFERRING_EXPRESSION_SEGMENTATION>'], fill_mask=True)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample, text_input)
+            output_image = draw_polygons(image, results['<REFERRING_EXPRESSION_SEGMENTATION>'], fill_mask)
             return results[task_prompt], output_image
         elif task_prompt == 'region to segmentation':
             task_prompt = '<REGION_TO_SEGMENTATION>'
-            results = self.run_example(task_prompt, image, text_input)
-            output_image = draw_polygons(image, results['<REGION_TO_SEGMENTATION>'], fill_mask=True)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample, text_input)
+            output_image = draw_polygons(image, results['<REGION_TO_SEGMENTATION>'], fill_mask)
             return results[task_prompt], output_image
         elif task_prompt == 'open vocabulary detection':
             task_prompt = '<OPEN_VOCABULARY_DETECTION>'
-            results = self.run_example(task_prompt, image, text_input)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample, text_input)
             bbox_results = convert_to_od_format(results['<OPEN_VOCABULARY_DETECTION>'])
             fig = plot_bbox(image, bbox_results)
             return bbox_results, fig_to_pil(fig)
         elif task_prompt == 'region to category':
             task_prompt = '<REGION_TO_CATEGORY>'
-            results = self.run_example(task_prompt, image, text_input)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample, text_input)
             return results[task_prompt], None
         elif task_prompt == 'region to description':
             task_prompt = '<REGION_TO_DESCRIPTION>'
-            results = self.run_example(task_prompt, image, text_input)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample, text_input)
             return results[task_prompt], None
         elif task_prompt == 'OCR':
             task_prompt = '<OCR>'
-            result = self.run_example(task_prompt, image)
+            result = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             return result[task_prompt], None
         elif task_prompt == 'OCR with region':
             task_prompt = '<OCR_WITH_REGION>'
-            results = self.run_example(task_prompt, image)
+            results = self.run_example(task_prompt, image, max_new_tokens, num_beams, do_sample)
             output_image = draw_ocr_bboxes(image, results['<OCR_WITH_REGION>'])
             output_results = {'bboxes': results[task_prompt].get('quad_boxes', []),
                               'labels': results[task_prompt].get('labels', [])}
@@ -309,8 +316,8 @@ class Florence2Postprocess:
 
         x1 = y1 = x2 = y2 = 0
         label = ""
-        if index < len(F_BBOXES["labels"]):
-            if "bboxes" in F_BBOXES:
+        if "bboxes" in F_BBOXES:
+            if index < len(F_BBOXES["labels"]):
                 bbox = F_BBOXES["bboxes"][index]
                 label = F_BBOXES["labels"][index]
                 label = label.removeprefix("</s>")
@@ -325,8 +332,9 @@ class Florence2Postprocess:
 
                 mask[y1:y2, x1:x2] = 1
 
-            else:
-                polygon = F_BBOXES["polygons"][0][0]
+        else:
+            if index < len(F_BBOXES["polygons"][0]):
+                polygon = F_BBOXES["polygons"][0][index]
                 label = F_BBOXES["labels"][0]
 
                 image = Image.new('RGB', (width, height), color='black')
@@ -344,7 +352,6 @@ class Florence2Postprocess:
                 y2 = int(max(polygon[1::2]))
 
                 mask = np.asarray(image)[..., 0].astype(np.float32) / 255
-        
         mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
         loc_string = f"<loc_{x1 * 999 // width}><loc_{y1 * 999 // height}><loc_{x2 * 999 // width}><loc_{y2 * 999 // height}>"
         return (mask, label, loc_string, x2 - x1 + 1, y2 - y1 + 1, x1, y1)
@@ -362,7 +369,6 @@ class Florence2PostprocessAll:
     RETURN_NAMES = ("mask", "label", "loc_string", "width", "height", "x", "y")
     FUNCTION = "apply"
     CATEGORY = "Florence2"
-
     def apply(self, F_BBOXES):
         if isinstance(F_BBOXES, str):
             return (torch.zeros(1, 512, 512, dtype=torch.float32), F_BBOXES, "", 0, 0, 0, 0)
@@ -403,22 +409,26 @@ class Florence2PostprocessAll:
                 mask[y1:y2, x1:x2] = 1
         
         else:
-            polygon = F_BBOXES["polygons"][0][0]
-
             image = Image.new('RGB', (width, height), color='black')
             draw = ImageDraw.Draw(image)
-            _polygon = np.array(polygon).reshape(-1, 2)
-            if len(_polygon) < 3:
-                print('Invalid polygon:', _polygon)
-            else:
-                _polygon = (_polygon).reshape(-1).tolist()
-                draw.polygon(_polygon, outline='white', fill='white')
-            
-            x1_c = int(min(polygon[0::2]))
-            x2_c = int(max(polygon[0::2]))
-            y1_c = int(min(polygon[1::2]))
-            y2_c = int(max(polygon[1::2]))
-            
+
+            x1_c = width
+            y1_c = height
+            x2_c = y2_c = 0
+
+            for polygon in F_BBOXES["polygons"][0]:
+                _polygon = np.array(polygon).reshape(-1, 2)
+                if len(_polygon) < 3:
+                    print('Invalid polygon:', _polygon)
+                    continue
+
+                draw.polygon(_polygon.flatten().tolist(), outline='white', fill='white')
+
+                x1_c = min(x1_c, int(min(polygon[0::2])))
+                x2_c = max(x2_c, int(max(polygon[0::2])))
+                y1_c = min(y1_c, int(min(polygon[1::2])))
+                y2_c = max(y2_c, int(max(polygon[1::2])))
+
             mask = np.asarray(image)[..., 0].astype(np.float32) / 255
         
         mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
