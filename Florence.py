@@ -44,7 +44,9 @@ def fig_to_pil(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', pad_inches=0)
     buf.seek(0)
-    return Image.open(buf)
+    pil = Image.open(buf)
+    plt.close()
+    return pil
 
 def plot_bbox(image, data):
     fig, ax = plt.subplots()
