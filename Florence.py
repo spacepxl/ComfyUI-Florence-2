@@ -47,7 +47,15 @@ def fig_to_pil(fig):
     return Image.open(buf)
 
 def plot_bbox(image, data):
-    fig, ax = plt.subplots()
+    if matplotlib.__version__ == "3.9.0": # workaround for random failure bug in matplotlib 3.9.0
+        ax = None
+        while ax is None:
+            try:
+                fig, ax = plt.subplots()
+            except ValueError:
+                continue
+    else:
+        fig, ax = plt.subplots()
     fig.set_size_inches(image.width / 100, image.height / 100)
     ax.imshow(image)
     for i, (bbox, label) in enumerate(zip(data['bboxes'], data['labels'])):
