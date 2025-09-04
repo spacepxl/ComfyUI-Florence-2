@@ -369,15 +369,16 @@ class Florence2PostprocessAll:
 
     RETURN_TYPES = ("MASK", "STRING", "STRING", "INT", "INT", "INT", "INT")
     RETURN_NAMES = ("mask", "label", "loc_string", "width", "height", "x", "y")
+    OUTPUT_IS_LIST = (True, False,False,False,False,False,False)
     FUNCTION = "apply"
     CATEGORY = "Florence2"
     def apply(self, F_BBOXES):
         if isinstance(F_BBOXES, str):
             return (torch.zeros(1, 512, 512, dtype=torch.float32), F_BBOXES, "", 0, 0, 0, 0)
-        
+        masks = []
         width = F_BBOXES["width"]
         height = F_BBOXES["height"]
-        mask = np.zeros((height, width), dtype=np.uint8)
+        
         
         x1_c = width
         y1_c = height
@@ -385,6 +386,7 @@ class Florence2PostprocessAll:
         label = ""
         if "bboxes" in F_BBOXES:
             for idx in range(len(F_BBOXES["bboxes"])):
+                mask = np.zeros((height, width), dtype=np.uint8)
                 bbox = F_BBOXES["bboxes"][idx]
                 
                 new_label = F_BBOXES["labels"][idx].removeprefix("</s>")
@@ -409,7 +411,8 @@ class Florence2PostprocessAll:
                 y2_c = max(y2_c, y2)
                 
                 mask[y1:y2, x1:x2] = 1
-        
+                mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
+                masks.append(mask)
         else:
             image = Image.new('RGB', (width, height), color='black')
             draw = ImageDraw.Draw(image)
@@ -432,10 +435,11 @@ class Florence2PostprocessAll:
                 y2_c = max(y2_c, int(max(polygon[1::2])))
 
             mask = np.asarray(image)[..., 0].astype(np.float32) / 255
+            mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
+            masks.append(mask)
         
-        mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0)
         loc_string = f"<loc_{x1_c * 999 // width}><loc_{y1_c * 999 // height}><loc_{x2_c * 999 // width}><loc_{y2_c * 999 // height}>"
-        return (mask, label, loc_string, x2_c - x1_c + 1, y2_c - y1_c + 1, x1_c, y1_c)
+        return (masks, label, loc_string, x2_c - x1_c + 1, y2_c - y1_c + 1, x1_c, y1_c)
 
 NODE_CLASS_MAPPINGS = {
     "LoadFlorence2Model": LoadFlorence2Model,
